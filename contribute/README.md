@@ -78,8 +78,32 @@ is written to a working directory on their Mac and refuses to be written onto
 the drive. Sidecars orphaned by a deletion are removed silently, and their count
 is never reported.
 
+## Verification
+
+Development happens off macOS, so the osxphotos-dependent parts are verified in
+CI on GitHub Actions macOS runners. See [`.github/workflows/tests.yml`](../.github/workflows/tests.yml).
+
+The fixtures are the `.photoslibrary` bundles osxphotos ships with its own test
+suite, covering face tags, shared items, cloud-only originals, live photos, and
+Photos schema versions 5 through 11. They are ordinary directories rather than
+the TCC-protected system library, so they open without Full Disk Access on a
+headless runner — which is how osxphotos tests itself.
+
+Two things get checked there that cannot be checked anywhere else:
+
+- every export flag exists in the installed osxphotos, and
+- every `PhotoInfo` property the contract reads still exists on real libraries.
+
+Both are silent-failure risks, and the second has already earned its keep: it
+caught the adapter querying `intrash=True` meaning "include trashed" when
+osxphotos means "only trashed" — a bug that would have scanned nothing but the
+Recently Deleted folder and produced an empty drive.
+
+Because macOS bills at a 10× multiplier on private repos, that job runs weekly,
+on manual dispatch, and on commits marked `[mac]` — not on every push.
+
 ## Status
 
-Implemented and tested, but **not yet run against a real photo library** — that
-requires a Mac. Run `doctor` there first; it is what confirms the osxphotos
-assumptions this code makes.
+Implemented, and verified against real Photos libraries in CI. **Not yet run
+against a full personal library** — run `doctor` on the contributor's Mac
+first.
