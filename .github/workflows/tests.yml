@@ -114,6 +114,27 @@ jobs:
               print(f"{db.parent.parent.name}: wal {before:,} -> {after:,}")
           PY
 
+      - name: Diagnose what osxphotos sees in each fixture
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import osxphotos
+
+          for lib in sorted(Path("osxphotos-fixtures/tests").glob("*.photoslibrary")):
+              try:
+                  db = osxphotos.PhotosDB(str(lib))
+                  print(
+                      f"{lib.name:38} ver={getattr(db, 'photos_version', '?')} "
+                      f"plain={len(db.photos())} "
+                      f"movies={len(db.photos(movies=True))} "
+                      f"all={len(db.photos(movies=True, intrash=True))} "
+                      f"persons={len(db.persons)} albums={len(db.album_info)}"
+                  )
+              except Exception as exc:
+                  print(f"{lib.name:38} ERROR {type(exc).__name__}: {exc}")
+          PY
+
       - name: Full suite, including macOS integration
         env:
           OSXPHOTOS_TEST_LIBRARIES: osxphotos-fixtures/tests
