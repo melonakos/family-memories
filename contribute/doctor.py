@@ -119,6 +119,40 @@ def check_library(path: Path | None) -> Check:
     return Check("Photo library", True, f"{count:,} items readable in {library.description}")
 
 
+def check_photoinfo_properties(path: Path | None) -> Check:
+    """Confirm osxphotos still exposes every property the contract reads.
+
+    The adapter reads these defensively, so a rename degrades toward copying
+    less rather than crashing. That is right during an export and wrong for
+    noticing, so it gets checked explicitly.
+    """
+    from .library import missing_attributes
+
+    try:
+        import osxphotos
+
+        db = osxphotos.PhotosDB(str(path)) if path else osxphotos.PhotosDB()
+        photos = db.photos(movies=True, intrash=True)
+    except Exception as exc:  # noqa: BLE001
+        return Check("PhotoInfo properties", False, f"could not read: {exc}")
+
+    if not photos:
+        return Check(
+            "PhotoInfo properties", True, "library is empty, nothing to check", fatal=False
+        )
+
+    missing = missing_attributes(photos[0])
+    if missing:
+        return Check(
+            "PhotoInfo properties",
+            False,
+            f"osxphotos no longer provides {', '.join(missing)}.\n"
+            f"The contract would read defaults for these, silently changing what "
+            f"gets copied. Update contribute/library.py before exporting.",
+        )
+    return Check("PhotoInfo properties", True, "all properties the contract reads are present")
+
+
 def check_config(config_path: Path | None) -> tuple[Check, Config | None]:
     try:
         config = load_config(config_path)
@@ -167,7 +201,10 @@ def run_checks(config_path: Path | None = None, library_path: Path | None = None
         checks.append(check_osxphotos_cli())
         if shutil.which("osxphotos"):
             checks.extend(check_export_flags())
-        checks.append(check_library(library_path))
+        library_check = check_library(library_path)
+        checks.append(library_check)
+        if library_check.ok:
+            checks.append(check_photoinfo_properties(library_path))
 
     checks.append(check_destination(config))
     return checks

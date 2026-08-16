@@ -1,0 +1,105 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: macOS runner image to verify against
+        type: choice
+        default: macos-15
+        options: [macos-15, macos-26]
+  schedule:
+    # Weekly. Catches an osxphotos release renaming something we depend on,
+    # rather than discovering it mid-export on someone else's Mac.
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The copy contract is pure Python, so the bulk of the suite runs on Linux
+  # at a 1x billing multiplier. macOS minutes bill at 10x on private repos,
+  # which is why this job carries the matrix and the macOS job does not.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest -q
+
+  # Resolves the two things that cannot be checked off a Mac: that osxphotos
+  # still spells its export flags the way we expect, and that a real PhotoInfo
+  # still carries every property the contract reads.
+  #
+  # Deliberately not run on every push — see the paths filter. A run costs
+  # roughly 10x its wall-clock minutes against the free allowance.
+  osxphotos:
+    if: >
+      github.event_name != 'push' ||
+      contains(github.event.head_commit.message, '[mac]')
+    runs-on: ${{ inputs.runner || 'macos-15' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install with macOS extras
+        run: pip install -e ".[dev,macos]"
+
+      - name: Report the osxphotos version under test
+        run: |
+          python -c "import osxphotos; print('osxphotos', osxphotos.__version__)"
+          osxphotos --version || true
+
+      # These bundles are ordinary directories, not the TCC-protected system
+      # library, so they open without Full Disk Access on a headless runner.
+      # This is how osxphotos tests itself. Chosen to cover the properties the
+      # contract actually depends on: face tags, shared items, cloud-only
+      # originals, live photos, media types, and the newest Photos schema.
+      - name: Fetch Photos library fixtures
+        uses: actions/checkout@v4
+        with:
+          repository: RhetTbull/osxphotos
+          path: osxphotos-fixtures
+          sparse-checkout: |
+            tests/Test-26.1.photoslibrary
+            tests/Test-Faces-10.15.7.photoslibrary
+            tests/Test-Shared-10.15.1.photoslibrary
+            tests/Test-Cloud-13.1.photoslibrary
+            tests/Test-Live-15.7.2.photoslibrary
+            tests/Test-Media-Types-15.7.2.photoslibrary
+
+      - name: List the fixtures that arrived
+        run: ls -d osxphotos-fixtures/tests/*.photoslibrary || echo "none fetched"
+
+      - name: Full suite, including macOS integration
+        env:
+          OSXPHOTOS_TEST_LIBRARIES: osxphotos-fixtures/tests
+        run: pytest -q -rs
+
+      - name: Inventory dry run against a real Photos library
+        env:
+          OSXPHOTOS_TEST_LIBRARIES: osxphotos-fixtures/tests
+        run: |
+          cp config.example.toml config.toml
+          python cli.py contribute inventory \
+            --config config.toml \
+            --library osxphotos-fixtures/tests/Test-Faces-10.15.7.photoslibrary

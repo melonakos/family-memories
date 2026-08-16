@@ -27,6 +27,40 @@ from .models import PhotoItem
 # conservative direction. See is_screenshot() below.
 _SCREENSHOT_PREFIXES = ("screenshot", "screen shot", "simulator screen shot")
 
+# Every osxphotos PhotoInfo property the copy contract depends on.
+#
+# photo_to_item() reads these defensively, so a renamed property degrades
+# quietly rather than crashing — good for not losing an export halfway, bad
+# for noticing. This tuple closes that gap: `doctor` and the macOS integration
+# tests assert each name still exists on a real PhotoInfo, turning a silent
+# behaviour change into a loud one.
+PHOTOINFO_ATTRIBUTES = (
+    "uuid",
+    "original_filename",
+    "date",
+    "persons",
+    "albums",
+    "screenshot",
+    "hidden",
+    "intrash",
+    "shared",
+    "isphoto",
+    "ismovie",
+    "live_photo",
+    "ismissing",
+    "original_filesize",
+    "path",
+)
+
+
+def missing_attributes(photo: object) -> list[str]:
+    """Which depended-on properties this PhotoInfo does not have.
+
+    A non-empty result means osxphotos changed shape and the contract may be
+    reading defaults instead of real values.
+    """
+    return [name for name in PHOTOINFO_ATTRIBUTES if not hasattr(photo, name)]
+
 
 class LibraryError(Exception):
     """Raised when a photo library can't be opened or read."""
