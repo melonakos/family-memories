@@ -90,6 +90,30 @@ jobs:
       - name: List the fixtures that arrived
         run: ls -d osxphotos-fixtures/tests/*.photoslibrary || echo "none fetched"
 
+      # Most of these libraries were committed mid-transaction: their photo
+      # rows live in an un-checkpointed write-ahead log rather than in
+      # Photos.sqlite itself. Read that way they look empty, which silently
+      # turns the property checks into skips. Checkpointing folds the WAL in.
+      - name: Checkpoint fixture write-ahead logs
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          for db in sorted(Path("osxphotos-fixtures/tests").glob("*.photoslibrary/database/Photos.sqlite")):
+              wal = db.with_name(db.name + "-wal")
+              before = wal.stat().st_size if wal.exists() else 0
+              try:
+                  con = sqlite3.connect(db)
+                  con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                  con.close()
+              except sqlite3.Error as exc:
+                  print(f"{db.parent.parent.name}: checkpoint failed: {exc}")
+                  continue
+              after = wal.stat().st_size if wal.exists() else 0
+              print(f"{db.parent.parent.name}: wal {before:,} -> {after:,}")
+          PY
+
       - name: Full suite, including macOS integration
         env:
           OSXPHOTOS_TEST_LIBRARIES: osxphotos-fixtures/tests
