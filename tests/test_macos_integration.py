@@ -90,7 +90,11 @@ class TestAgainstRealLibraries:
         """
         import osxphotos
 
-        photos = osxphotos.PhotosDB(str(library_path)).photos(movies=True, intrash=True)
+        # Both trash states, for the same reason OsxPhotosLibrary.items() does
+        # it: intrash=True returns *only* trashed items. Asking once with it set
+        # is what made these libraries look empty and skipped this very check.
+        db = osxphotos.PhotosDB(str(library_path))
+        photos = db.photos(movies=True) + db.photos(movies=True, intrash=True)
         if not photos:
             pytest.skip("library is empty")
         missing = missing_attributes(photos[0])
