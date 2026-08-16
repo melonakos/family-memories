@@ -99,8 +99,8 @@ caught the adapter querying `intrash=True` meaning "include trashed" when
 osxphotos means "only trashed" — a bug that would have scanned nothing but the
 Recently Deleted folder and produced an empty drive.
 
-Because macOS bills at a 10× multiplier on private repos, that job runs weekly,
-on manual dispatch, and on commits marked `[mac]` — not on every push.
+That job runs on every push, across both current macOS runner images, plus
+weekly to catch an osxphotos release renaming something we depend on.
 
 ## Status
 

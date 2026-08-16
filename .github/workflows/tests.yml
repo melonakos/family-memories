@@ -5,12 +5,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      runner:
-        description: macOS runner image to verify against
-        type: choice
-        default: macos-15
-        options: [macos-15, macos-26]
   schedule:
     # Weekly. Catches an osxphotos release renaming something we depend on,
     # rather than discovering it mid-export on someone else's Mac.
@@ -23,9 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The copy contract is pure Python, so the bulk of the suite runs on Linux
-  # at a 1x billing multiplier. macOS minutes bill at 10x on private repos,
-  # which is why this job carries the matrix and the macOS job does not.
+  # The copy contract is pure Python, so the whole suite except the osxphotos
+  # integration runs here, across every supported Python version.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -47,14 +40,16 @@ jobs:
   # still spells its export flags the way we expect, and that a real PhotoInfo
   # still carries every property the contract reads.
   #
-  # Deliberately not run on every push — see the paths filter. A run costs
-  # roughly 10x its wall-clock minutes against the free allowance.
+  # Runs on every push across both runner images. Standard macOS runners are
+  # free and unlimited on public repositories, so there is no reason to ration
+  # the one check that has actually caught a bug.
   osxphotos:
-    if: >
-      github.event_name != 'push' ||
-      contains(github.event.head_commit.message, '[mac]')
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
     steps:
       - uses: actions/checkout@v4
 

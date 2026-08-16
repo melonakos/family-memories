@@ -1,5 +1,8 @@
 # family-memories
 
+[![tests](https://github.com/melonakos/family-memories/actions/workflows/tests.yml/badge.svg)](https://github.com/melonakos/family-memories/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Tools for consolidating a family's photos and videos into a permanent, searchable
 archive — and for turning the best of it into something you can hang on a wall.
 
