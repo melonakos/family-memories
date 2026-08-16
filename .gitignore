@@ -1,0 +1,84 @@
+# ─────────────────────────────────────────────────────────────
+# Family media NEVER enters this repo. Code and docs only.
+# ─────────────────────────────────────────────────────────────
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tif
+*.tiff
+*.webp
+*.heic
+*.heif
+*.dng
+*.raw
+*.cr2
+*.cr3
+*.nef
+*.arw
+*.orf
+*.rw2
+*.mov
+*.mp4
+*.m4v
+*.avi
+*.mkv
+*.mts
+*.m2ts
+*.3gp
+*.aae
+
+# The index database and any derived caches
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Genealogy exports contain living relatives' names and dates
+*.ged
+*.gedcom
+
+# Export manifests list real filenames and person tags
+manifest*.csv
+inventory*.csv
+inventory*.json
+
+# ─────────────────────────────────────────────────────────────
+# Local-only material: real names, addresses, room measurements,
+# household specifics. Nothing here is ever committed.
+# ─────────────────────────────────────────────────────────────
+private/
+*.local.md
+*.local.toml
+config.toml
+
+# ─────────────────────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ─────────────────────────────────────────────────────────────
+# OS / editor
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp

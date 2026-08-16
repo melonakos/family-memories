@@ -1,0 +1,155 @@
+# family-memories configuration
+#
+# Copy this file to `config.toml` and edit it for your household.
+# `config.toml` is gitignored because it contains real names.
+#
+#   cp config.example.toml config.toml
+
+[family]
+# The people the archive is built around. `tags` lists every spelling that may
+# appear as a face-tag across the various libraries you're gathering from —
+# nicknames, maiden names, misspellings. Matching is case-insensitive.
+#
+# `quota` is this person's guaranteed share of the final wall selection. The
+# selection engine treats these as floors, not targets: it will not produce a
+# selection that under-represents anyone. Leave quotas out entirely for an
+# even split.
+subjects = [
+    { name = "Child One",   tags = ["Child One", "Childone"],  quota = 3 },
+    { name = "Child Two",   tags = ["Child Two"],              quota = 3 },
+    { name = "Child Three", tags = ["Child Three", "Chris"],   quota = 3 },
+]
+
+# Adults who appear in the collection. `requires_subject = true` means photos of
+# this person qualify for the wall only when at least one subject is also in the
+# shot. See "Eligibility rule" in docs/design.md.
+adults = [
+    { name = "Owner",        requires_subject = false },
+    { name = "Co-parent",    requires_subject = true },
+]
+
+
+[contribute]
+# The copy contract for a contributor's library. Read this section together with
+# the contributor before running anything. See docs/design.md, Project 1.
+
+# Everything dated before this is copied wholesale. On or after it, only items
+# tagged with one of the subjects above are copied. Usually the date the two
+# households' libraries diverged.
+cutoff_date = "2015-01-01"
+
+# Screenshots on or after the cutoff are never copied, even if a tagged face
+# appears in one. This is a hard override and there is no reason to disable it.
+exclude_screenshots_after_cutoff = true
+
+# Albums that are never read, regardless of any other rule.
+exclude_albums = ["Hidden", "Recently Deleted"]
+
+# Skip items shared into the library by someone else — they aren't the
+# contributor's to give.
+exclude_not_owned = true
+
+# Where the export lands. An exFAT-formatted SSD; the review pass is much less
+# tedious on an SSD than a spinning drive.
+destination = "/Volumes/CONTRIBUTION"
+
+# Report untagged items in this many months after the cutoff, so you can see
+# whether face-tagging was simply incomplete for a while before deciding the
+# contract is right.
+untagged_report_months = 18
+
+
+[vault]
+# The canonical archive. Originals here are never modified.
+path = "/Volumes/Vault/vault"
+
+# Local mirror on separate physical media — the "2" in 3-2-1.
+mirror_path = "/Volumes/VaultMirror/vault"
+
+# Folder layout under the vault root. Plain and boring on purpose: it stays
+# readable decades from now with no software at all.
+layout = "YYYY/MM"
+
+# Verify checksums on this cadence (days). 0 disables the scheduled check.
+verify_interval_days = 90
+
+
+[offsite]
+# rclone remote for the third copy. Use a PERSONAL cloud account, never one
+# controlled by an employer — access to those can disappear overnight.
+rclone_remote = "personal-drive:family-vault"
+enabled = true
+
+
+[index]
+# SQLite database tying everything together. Gitignored.
+path = "./index.db"
+
+
+[ingest]
+# Drop anything here and run one command.
+inbox = "~/PhotoInbox"
+
+# Perceptual-hash distance below which two images are considered near-duplicates.
+# Lower is stricter. Matches inside this threshold are linked, not imported;
+# anything ambiguous is flagged for a human rather than resolved automatically.
+phash_threshold = 8
+
+# Never infer a date from a filename or folder name. Unknown-date items are
+# flagged for review. Turning this off violates ground rule 4.
+guess_missing_dates = false
+
+
+[enrich]
+# Identify music in videos and caption it "♫ Title — Artist".
+music_recognition = true
+
+# Fill in locations for items with no GPS data, using nearby items from the
+# same day as reference.
+infer_locations = true
+
+
+[living_library]
+# Keyword prefix that links an item in the browsing library back to its vault
+# original, e.g. "vault:AB12CD".
+vault_keyword_prefix = "vault:"
+
+
+[heritage]
+# GEDCOM exported from a FamilySearch-certified desktop app. Gitignored — it
+# lists living relatives.
+gedcom_path = "./private/tree.ged"
+
+# How many generations back to pull portraits for. Photography realistically
+# reaches three or four.
+portrait_generations = 4
+
+
+[wall]
+# Usable art surface, in inches. Measure the wall before filling this in —
+# these are illustrative values, not a default worth keeping.
+width_in = 144
+height_in = 96
+
+# Vertical band the arrangement occupies, and the centerline height. 57–60" is
+# gallery convention and roughly standing eye level.
+art_band_low_in = 46
+art_band_high_in = 90
+centerline_in = 58
+
+# Spacing between frame edges, in inches.
+gap_in = 2.5
+
+# Fixed obstacles the layout must work around — a mirror, a TV, a thermostat.
+# Positions are measured from the left edge of the wall.
+[[wall.fixed]]
+name = "mirror"
+center_x_in = 72
+width_in = 36
+height_in = 36
+
+# Print quality gate. Any photo that can't hit min_dpi at its assigned frame
+# size is rejected from that slot.
+[wall.print]
+min_dpi = 150
+target_dpi = 300
