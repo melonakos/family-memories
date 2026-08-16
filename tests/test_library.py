@@ -144,6 +144,59 @@ class TestDefensiveDefaults:
         assert photo_to_item(FakePhotoInfo(original_filesize=None)).filesize == 0
 
 
+class FakeDB:
+    """Stands in for osxphotos.PhotosDB, mirroring its real query semantics.
+
+    ``intrash=True`` returns *only* trashed items — it does not include them
+    alongside the rest. Getting that backwards means scanning nothing but the
+    Recently Deleted folder.
+    """
+
+    def __init__(self, live, trashed):
+        self.live = live
+        self.trashed = trashed
+        self.calls = []
+
+    def photos(self, movies=True, intrash=False):
+        self.calls.append({"movies": movies, "intrash": intrash})
+        return list(self.trashed if intrash else self.live)
+
+
+class TestOsxPhotosLibraryQuerying:
+    def _library(self):
+        from contribute.library import OsxPhotosLibrary
+
+        db = FakeDB(
+            live=[FakePhotoInfo(uuid="live-1"), FakePhotoInfo(uuid="live-2")],
+            trashed=[FakePhotoInfo(uuid="trash-1", intrash=True)],
+        )
+        return OsxPhotosLibrary(db, "fake"), db
+
+    def test_returns_live_and_trashed_items(self):
+        """The regression test for the bug that made a real library look empty."""
+        library, _ = self._library()
+        assert {item.uuid for item in library.items()} == {"live-1", "live-2", "trash-1"}
+
+    def test_queries_both_trash_states(self):
+        library, db = self._library()
+        list(library.items())
+        assert {call["intrash"] for call in db.calls} == {True, False}
+
+    def test_requests_movies(self):
+        """Videos are as much a part of the archive as stills."""
+        library, db = self._library()
+        list(library.items())
+        assert all(call["movies"] for call in db.calls)
+
+    def test_deduplicates_overlapping_results(self):
+        """If osxphotos ever makes intrash inclusive, this must not double up."""
+        from contribute.library import OsxPhotosLibrary
+
+        shared = FakePhotoInfo(uuid="both")
+        db = FakeDB(live=[shared], trashed=[shared])
+        assert [item.uuid for item in OsxPhotosLibrary(db, "fake").items()] == ["both"]
+
+
 class TestFakeLibrary:
     def test_yields_its_items(self):
         library = FakeLibrary([photo_to_item(FakePhotoInfo())])

@@ -154,9 +154,23 @@ class OsxPhotosLibrary:
         osxphotos' own query flags — decides what is excluded, so that every
         exclusion has a recorded reason and shows up in the inventory. A
         library filter here would make items vanish with no accounting.
+
+        Two queries, because ``intrash=True`` means *only* trashed items rather
+        than *including* them. Asking for both in one call returns just the
+        Recently Deleted folder — which reads as a nearly empty library and
+        would have quietly selected nothing for export. Results are
+        deduplicated by uuid so overlapping semantics stay harmless.
         """
-        for photo in self._db.photos(movies=True, intrash=True):
-            yield photo_to_item(photo)
+        seen: set[str] = set()
+        for query in (
+            self._db.photos(movies=True),
+            self._db.photos(movies=True, intrash=True),
+        ):
+            for photo in query:
+                if photo.uuid in seen:
+                    continue
+                seen.add(photo.uuid)
+                yield photo_to_item(photo)
 
 
 def open_library(path: Path | None = None) -> OsxPhotosLibrary:

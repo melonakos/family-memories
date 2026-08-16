@@ -137,17 +137,17 @@ class TestPropertiesCarryRealValues:
         assert PHOTOINFO_ATTRIBUTES
 
     def test_no_fixture_library_reads_as_empty(self):
-        """An empty fixture turns the property checks into skips.
+        """An empty-looking library turns the property checks into skips.
 
-        That is how a renamed property would slip through unnoticed: the tests
-        that matter never run, and the suite still reports green. Several of
-        these libraries were committed mid-transaction, with their photo rows
-        in an un-checkpointed write-ahead log — read without checkpointing
-        they look empty rather than erroring.
+        That is how a real defect slipped through once already: the adapter
+        asked osxphotos for ``intrash=True`` meaning "include trashed", when it
+        actually means "only trashed". Every fixture read as nearly empty, the
+        checks that mattered skipped, and the suite still reported green. An
+        empty library is now a failure, not a skip.
         """
         empty = [p.name for p in LIBRARIES if not list(open_library(p).items())]
         assert not empty, (
             f"these fixture libraries read as empty: {empty}. "
-            f"Checkpoint their write-ahead logs before running "
-            f"(see .github/workflows/tests.yml), or the property checks silently skip."
+            f"Either the fixtures did not download, or the adapter's query is "
+            f"wrong — check OsxPhotosLibrary.items()."
         )
