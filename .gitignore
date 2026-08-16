@@ -55,6 +55,10 @@ private/
 *.local.toml
 config.toml
 
+# Export working directory: the selection list and per-file export log.
+# Never belongs in version control, and never on the destination drive either.
+.contribute-work/
+
 # ─────────────────────────────────────────────────────────────
 # Python
 # ─────────────────────────────────────────────────────────────

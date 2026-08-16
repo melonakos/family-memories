@@ -77,8 +77,22 @@ cp config.example.toml config.toml
 ```bash
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+pip install -e ".[dev]"        # add ",macos" on a Mac for the osxphotos legs
 ```
+
+## Quick start
+
+The contribution kit is the first working piece. See how the copy contract
+behaves against a synthetic library — no Mac and no real photos needed:
+
+```bash
+cp config.example.toml config.toml   # then edit the roster and cutoff date
+family-memories contribute inventory --demo
+```
+
+On the contributor's Mac, `family-memories contribute doctor` checks the
+environment, then `inventory` reports what would be copied and how large it is.
+Full walkthrough in [`contribute/README.md`](contribute/README.md).
 
 ---
 

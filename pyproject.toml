@@ -26,11 +26,12 @@ dev = [
     "mypy>=1.9",
 ]
 
-# [project.scripts] intentionally absent — added when the first CLI entry point
-# (the contribution dry run) actually exists.
+[project.scripts]
+family-memories = "cli:main"
 
 [tool.setuptools]
 packages = ["contribute", "vault", "index", "ingest", "enrich", "heritage"]
+py-modules = ["cli", "settings"]
 
 [tool.ruff]
 line-length = 100
