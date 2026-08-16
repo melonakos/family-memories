@@ -108,13 +108,52 @@ class ContributeConfig:
         return frozenset(normalize_tag(a) for a in self.exclude_albums)
 
 
+SUPPORTED_VAULT_LAYOUTS = ("YYYY/MM",)
+
+
+@dataclass(frozen=True)
+class IndexConfig:
+    """The SQLite index. Defaults to a file beside config.toml."""
+
+    path: Path = Path("index.db")
+
+
+@dataclass(frozen=True)
+class VaultConfig:
+    """The canonical archive.
+
+    ``path`` is optional at load time because the drives may not exist yet —
+    the dry run reports the size that determines what to buy. Commands that
+    need it fail with a clear message rather than inventing a location.
+    """
+
+    path: Path | None = None
+    mirror_path: Path | None = None
+    layout: str = "YYYY/MM"
+    verify_interval_days: int = 90
+
+
+@dataclass(frozen=True)
+class IngestConfig:
+    inbox: Path | None = None
+    phash_threshold: int = 8
+    """Perceptual-hash distance below which two images are near-duplicates.
+
+    Only ever used to *propose* a match. Acting on one requires the candidate
+    to be an unambiguous lower-resolution twin; anything else goes to review.
+    """
+
+
 @dataclass(frozen=True)
 class Config:
     family: FamilyConfig
     contribute: ContributeConfig
+    index: IndexConfig
+    vault: VaultConfig
+    ingest: IngestConfig
     path: Path
     raw: dict[str, Any]
-    """Unparsed sections (vault, index, ingest, wall, ...).
+    """Unparsed sections (enrich, living_library, heritage, wall, ...).
 
     Typed accessors get added as each module is built, rather than writing
     speculative parsing for stages that don't exist yet.
@@ -228,6 +267,66 @@ def _parse_contribute(raw: dict[str, Any]) -> ContributeConfig:
     )
 
 
+def _optional_path(section: dict[str, Any], key: str) -> Path | None:
+    value = section.get(key)
+    return Path(str(value)).expanduser() if value else None
+
+
+def _parse_index(raw: dict[str, Any], config_dir: Path) -> IndexConfig:
+    section = raw.get("index") or {}
+    path = _optional_path(section, "path") or Path("index.db")
+    # Resolve relative to config.toml, not the current directory, so the same
+    # index is used no matter where a command is run from.
+    return IndexConfig(path=path if path.is_absolute() else (config_dir / path))
+
+
+def _parse_vault(raw: dict[str, Any]) -> VaultConfig:
+    section = raw.get("vault") or {}
+
+    layout = str(section.get("layout", "YYYY/MM"))
+    if layout not in SUPPORTED_VAULT_LAYOUTS:
+        raise ConfigError(
+            f"[vault] layout {layout!r} is not supported. "
+            f"Supported: {', '.join(SUPPORTED_VAULT_LAYOUTS)}."
+        )
+
+    days = section.get("verify_interval_days", 90)
+    if not isinstance(days, int) or days < 0:
+        raise ConfigError("[vault] verify_interval_days must be a non-negative integer.")
+
+    path = _optional_path(section, "path")
+    mirror = _optional_path(section, "mirror_path")
+    if path and mirror and path.resolve() == mirror.resolve():
+        raise ConfigError(
+            "[vault] path and mirror_path are the same directory. A mirror on the "
+            "same media is not a second copy."
+        )
+
+    return VaultConfig(path=path, mirror_path=mirror, layout=layout, verify_interval_days=days)
+
+
+def _parse_ingest(raw: dict[str, Any]) -> IngestConfig:
+    section = raw.get("ingest") or {}
+
+    threshold = section.get("phash_threshold", 8)
+    if not isinstance(threshold, int) or not 0 <= threshold <= 64:
+        raise ConfigError(
+            "[ingest] phash_threshold must be an integer between 0 and 64 "
+            "(it is a Hamming distance over a 64-bit hash)."
+        )
+
+    # Refuse rather than ignore. Honouring this would violate ground rule 4,
+    # and a safety flag that is silently dropped is worse than no flag at all.
+    if section.get("guess_missing_dates"):
+        raise ConfigError(
+            "[ingest] guess_missing_dates = true is not supported. Dates are never "
+            "inferred from filenames or file timestamps; undated items go to the "
+            "review queue for a human to decide."
+        )
+
+    return IngestConfig(inbox=_optional_path(section, "inbox"), phash_threshold=threshold)
+
+
 def find_config(start: Path | None = None) -> Path:
     """Locate config.toml, walking up from ``start`` to the filesystem root."""
     current = (start or Path.cwd()).resolve()
@@ -261,6 +360,9 @@ def load_config(path: Path | None = None) -> Config:
     return Config(
         family=_parse_family(raw),
         contribute=_parse_contribute(raw),
+        index=_parse_index(raw, resolved.parent),
+        vault=_parse_vault(raw),
+        ingest=_parse_ingest(raw),
         path=resolved,
         raw=raw,
     )

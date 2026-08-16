@@ -29,6 +29,34 @@ Every command here takes `--dry-run` and reports what it would do — counts by
 disposition, total bytes, and the review queue it would generate — before touching
 anything. Runs at this scale take hours, and finding out afterward is too late.
 
+## Requirements
+
+`exiftool` is required. It reads the dates and dimensions this pipeline refuses
+to guess at, for both stills and video.
+
+```bash
+brew install exiftool                        # macOS
+winget install OliverBetz.ExifTool           # Windows
+sudo apt install libimage-exiftool-perl      # Debian/Ubuntu
+```
+
+## Commands
+
+```bash
+family-memories ingest run --dry-run   # what would happen; writes nothing
+family-memories ingest run             # do it
+```
+
+## Ordering
+
+Files are processed highest-resolution first, not in filesystem order. Otherwise
+results depend on how the filesystem enumerates — Windows sorts paths
+case-insensitively, so a subfolder can precede a top-level file there and follow
+it on macOS. For byte-identical duplicates that only decides which name is kept;
+for a downscaled twin it decides whether the full-resolution master is archived
+or diverted to the review queue.
+
 ## Status
 
-Not yet implemented. Depends on [`../index`](../index).
+Implemented: dedupe, date normalization, vault filing, and index recording. The
+push to the living library is build order step 4 and is not here yet.

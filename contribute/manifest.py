@@ -19,25 +19,40 @@ about cleaned-up orphans, that urge is the bug.
 from __future__ import annotations
 
 import csv
-import hashlib
-import json
 from collections.abc import Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
-MANIFEST_NAME = "manifest.csv"
-CHUNK_SIZE = 1024 * 1024
-
-MEDIA_EXTENSIONS = frozenset(
-    {
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp",
-        ".heic", ".heif", ".dng", ".raw", ".cr2", ".cr3", ".nef", ".arw",
-        ".orf", ".rw2", ".mov", ".mp4", ".m4v", ".avi", ".mkv", ".mts",
-        ".m2ts", ".3gp",
-    }
+from mediafiles import (
+    MEDIA_EXTENSIONS,
+    SIDECAR_EXTENSIONS,
+    read_sidecar_metadata,
+    sha256_file,
+    sidecar_candidates,
 )
-SIDECAR_EXTENSIONS = frozenset({".xmp", ".json", ".aae"})
+from mediafiles import iter_media as _iter_media
+
+__all__ = [
+    "MANIFEST_COLUMNS",
+    "MANIFEST_NAME",
+    "MEDIA_EXTENSIONS",
+    "SIDECAR_EXTENSIONS",
+    "ManifestError",
+    "ManifestRow",
+    "VerifyResult",
+    "build_manifest",
+    "iter_media",
+    "read_manifest",
+    "read_sidecar_metadata",
+    "remove_orphaned_sidecars",
+    "sha256_file",
+    "sidecar_candidates",
+    "verify_manifest",
+    "write_manifest",
+]
+
+MANIFEST_NAME = "manifest.csv"
 
 MANIFEST_COLUMNS = ["path", "date", "albums", "persons", "size_bytes", "sha256"]
 
@@ -56,60 +71,9 @@ class ManifestRow:
     sha256: str
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(CHUNK_SIZE):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def iter_media(root: Path) -> Iterator[Path]:
-    """Every media file under ``root``, sorted, ignoring sidecars and OS cruft."""
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.name.startswith("."):
-            continue
-        if path.name == MANIFEST_NAME:
-            continue
-        if path.suffix.casefold() in MEDIA_EXTENSIONS:
-            yield path
-
-
-def sidecar_candidates(media: Path) -> list[Path]:
-    """Sidecar paths osxphotos may have written for a media file.
-
-    It writes ``IMG_1234.jpg.json`` by default, or ``IMG_1234.json`` when the
-    original extension is dropped. Both spellings are checked.
-    """
-    candidates: list[Path] = []
-    for extension in (".json", ".xmp", ".aae"):
-        candidates.append(media.with_suffix(media.suffix + extension))
-        candidates.append(media.with_suffix(extension))
-    return candidates
-
-
-def read_sidecar_metadata(media: Path) -> dict[str, str]:
-    """Pull date, albums, and persons out of a JSON sidecar, if one survives.
-
-    Best-effort by design. A missing or unparseable sidecar yields empty
-    fields rather than an error: the checksum and the file itself are what
-    matter for handoff, and metadata is also embedded in the file and the XMP.
-    """
-    for candidate in sidecar_candidates(media):
-        if candidate.suffix.casefold() != ".json" or not candidate.is_file():
-            continue
-        try:
-            data = json.loads(candidate.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-            return {}
-        if not isinstance(data, dict):
-            return {}
-        return {
-            "date": str(data.get("date") or ""),
-            "albums": "; ".join(str(a) for a in data.get("albums") or []),
-            "persons": "; ".join(str(p) for p in data.get("persons") or []),
-        }
-    return {}
+    """Every media file on the drive, excluding the manifest itself."""
+    return _iter_media(root, skip_names={MANIFEST_NAME})
 
 
 def remove_orphaned_sidecars(root: Path) -> None:

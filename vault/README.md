@@ -25,6 +25,15 @@ Once a file is filed here it is never modified or moved. All enrichment — keyw
 captions, genealogy links — lives in the index and in derivative copies. Any code
 path in this module that opens a vault file for writing is a bug.
 
+## Commands
+
+```bash
+family-memories vault verify           # re-checksum against the index
+family-memories vault verify --quick   # existence and size only; blind to bit rot
+```
+
 ## Status
 
-Not yet implemented.
+Filing and verification implemented. Mirror and offsite `rclone` sync are
+deliberately deferred until the drives exist — there is nothing real to back up
+yet, and an untested backup is worse than a known-absent one.

@@ -12,14 +12,16 @@ requires-python = ">=3.11"
 dependencies = [
     "click>=8.1",
     "rich>=13.7",
+    # Perceptual hashing for near-duplicate detection. Core rather than optional
+    # since ingest cannot do its job without it.
+    "Pillow>=10.2",
+    "ImageHash>=4.3",
 ]
 
 [project.optional-dependencies]
 # osxphotos is macOS-only. Everything under contribute/ and the living-library
 # leg of ingest/ needs it; the vault, index, and dedupe do not.
 macos = ["osxphotos>=0.68"]
-# Perceptual hashing and image inspection for the dedupe stage.
-media = ["Pillow>=10.2", "ImageHash>=4.3"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.4",
@@ -31,7 +33,11 @@ family-memories = "cli:main"
 
 [tool.setuptools]
 packages = ["contribute", "vault", "index", "ingest", "enrich", "heritage"]
-py-modules = ["cli", "settings"]
+py-modules = ["cli", "settings", "mediafiles"]
+
+[tool.setuptools.package-data]
+# The schema ships with the package; db.py reads it at first run.
+index = ["schema.sql"]
 
 [tool.ruff]
 line-length = 100

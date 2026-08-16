@@ -69,10 +69,14 @@ cp config.example.toml config.toml
 
 ## Requirements
 
+- **Python 3.11+**
+- **[exiftool](https://exiftool.org)** — required by the ingest pipeline. It reads
+  the dates and dimensions the pipeline refuses to guess at.
+  `brew install exiftool` · `winget install OliverBetz.ExifTool` ·
+  `sudo apt install libimage-exiftool-perl`
 - **macOS** for the contribution kit and the living-library leg — both are built on
   [`osxphotos`](https://github.com/RhetTbull/osxphotos), which reads the Apple Photos
   library. The vault, index, and ingest pipeline are cross-platform.
-- **Python 3.11+**
 - Enough disk for two full copies of the archive, plus an offsite target.
 
 ## Install
@@ -96,6 +100,20 @@ family-memories contribute inventory --demo
 On the contributor's Mac, `family-memories contribute doctor` checks the
 environment, then `inventory` reports what would be copied and how large it is.
 Full walkthrough in [`contribute/README.md`](contribute/README.md).
+
+The archive pipeline runs anywhere. Point it at a folder of photos:
+
+```bash
+family-memories index init
+family-memories ingest run --dry-run    # what would happen; writes nothing
+family-memories ingest run              # copy into the vault, record the index
+family-memories index status            # what the archive now contains
+family-memories index review            # anything it refused to decide alone
+family-memories vault verify            # re-checksum the vault
+```
+
+Re-running `ingest run` is safe — it never modifies the inbox, and a second pass
+recognises everything it already imported.
 
 ---
 

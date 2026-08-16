@@ -32,6 +32,16 @@ separately. Keep that distinction in mind when adding a column.
 
 The database file is gitignored.
 
+## Commands
+
+```bash
+family-memories index init      # create or migrate the database
+family-memories index status    # what the archive contains
+family-memories index review    # items the pipeline refused to decide alone
+```
+
 ## Status
 
-Not yet implemented. Schema comes first; the ingest pipeline depends on it.
+Implemented. Schema v1 covers assets, linked files, the review queue, sources,
+people, and derivatives. Migrations are versioned in `schema_version`; a database
+written by a newer build is refused rather than risked.
