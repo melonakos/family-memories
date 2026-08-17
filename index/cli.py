@@ -76,6 +76,12 @@ def status(config_path: Path | None) -> None:
         click.echo(f"  Undated:      {stats.undated:,}")
     click.echo(f"  Sources:      {stats.sources:,}")
     click.echo("")
+    click.echo(f"  With people:  {stats.tagged_people:,}")
+    click.echo(
+        f"  With a place: {stats.located:,} "
+        f"({stats.located_inferred:,} inferred, not recorded)"
+    )
+    click.echo("")
 
     click.echo(f"  Linked, not imported: {stats.linked_files:,}")
     for reason, count in sorted(stats.linked_by_reason.items()):

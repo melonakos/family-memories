@@ -101,12 +101,16 @@ guess_missing_dates = false
 
 
 [enrich]
-# Identify music in videos and caption it "♫ Title — Artist".
-music_recognition = true
+# How far in time `enrich locations` may reach from a photo that has GPS when
+# filling in one that doesn't. Inference never crosses midnight, and never uses
+# an already-inferred location as its source. Anything outside the window is
+# left unlocated: an empty field is honest, a wrong coordinate is repeated
+# forever.
+location_window_hours = 6
 
-# Fill in locations for items with no GPS data, using nearby items from the
-# same day as reference.
-infer_locations = true
+# Music identification for videos ("♫ Title — Artist") is not implemented yet;
+# see enrich/README.md. No setting here so that nothing in this file describes
+# behaviour the tools don't have.
 
 
 [living_library]

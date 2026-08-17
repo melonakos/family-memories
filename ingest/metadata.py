@@ -43,6 +43,11 @@ EXIFTOOL_ARGS = (
     "-ImageWidth",
     "-ImageHeight",
     "-MIMEType",
+    # The trailing '#' asks exiftool for the numeric value. Without it these
+    # come back as "122 deg 28' 41.88\" W", which would need parsing and gets
+    # the sign from a separate reference tag.
+    "-GPSLatitude#",
+    "-GPSLongitude#",
 )
 
 # How many files to hand exiftool at once. Large enough that startup cost is
@@ -71,10 +76,16 @@ class FileMetadata:
     taken_at_source: str = SOURCE_UNKNOWN
     width: int | None = None
     height: int | None = None
+    gps_latitude: float | None = None
+    gps_longitude: float | None = None
 
     @property
     def has_date(self) -> bool:
         return self.taken_at is not None
+
+    @property
+    def has_location(self) -> bool:
+        return self.gps_latitude is not None and self.gps_longitude is not None
 
 
 def require_exiftool() -> str:
@@ -195,6 +206,22 @@ def _as_int(value: object) -> int | None:
     return number if number > 0 else None
 
 
+def _as_coordinate(value: object, limit: float) -> float | None:
+    """Parse a coordinate, rejecting out-of-range and null-island values.
+
+    Exactly 0,0 is in the Gulf of Guinea and is almost always a camera writing
+    zeros rather than a real location. Treating it as unknown is right far more
+    often than not.
+    """
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not -limit <= number <= limit:
+        return None
+    return number
+
+
 def metadata_for(path: Path, exif: dict | None) -> FileMetadata:
     """Combine sidecar and embedded metadata into one answer.
 
@@ -206,13 +233,27 @@ def metadata_for(path: Path, exif: dict | None) -> FileMetadata:
     width = _as_int(exif.get("ImageWidth"))
     height = _as_int(exif.get("ImageHeight"))
 
+    latitude = _as_coordinate(exif.get("GPSLatitude"), 90.0)
+    longitude = _as_coordinate(exif.get("GPSLongitude"), 180.0)
+    if latitude == 0.0 and longitude == 0.0:
+        latitude = longitude = None
+    if latitude is None or longitude is None:
+        latitude = longitude = None
+
+    common = {
+        "width": width,
+        "height": height,
+        "gps_latitude": latitude,
+        "gps_longitude": longitude,
+    }
+
     sidecar_date = parse_sidecar_datetime(read_sidecar_metadata(path).get("date", ""))
     if sidecar_date:
-        return FileMetadata(sidecar_date, SOURCE_SIDECAR, width, height)
+        return FileMetadata(sidecar_date, SOURCE_SIDECAR, **common)
 
     for tag in DATE_TAGS:
         taken = parse_exif_datetime(exif.get(tag))
         if taken:
-            return FileMetadata(taken, SOURCE_EXIF, width, height)
+            return FileMetadata(taken, SOURCE_EXIF, **common)
 
-    return FileMetadata(None, SOURCE_UNKNOWN, width, height)
+    return FileMetadata(None, SOURCE_UNKNOWN, **common)

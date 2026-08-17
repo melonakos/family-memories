@@ -12,6 +12,7 @@ from contextlib import suppress
 import click
 
 from contribute.cli import contribute
+from enrich.cli import enrich_group
 from index.cli import index_group
 from ingest.cli import ingest_group
 from vault.cli import vault_group
@@ -41,6 +42,7 @@ main.add_command(contribute)
 main.add_command(index_group)
 main.add_command(vault_group)
 main.add_command(ingest_group)
+main.add_command(enrich_group)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ from .models import (
     REVIEW_OPEN,
     REVIEW_RESOLVED,
     Asset,
+    Enrichment,
     IndexStats,
     LinkedFile,
     ReviewItem,
@@ -29,8 +30,47 @@ from .models import (
     parse_datetime,
 )
 
-SCHEMA_VERSION = 1
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
+
+# schema.sql is the version-1 baseline. Everything after it is a migration.
+BASE_SCHEMA_VERSION = 1
+
+# Migrations applied in order on top of schema.sql. A fresh database runs the
+# base schema and then every migration, so the upgrade path is exercised on
+# every install rather than only on the one machine that happens to be old.
+# Untested migrations are how databases break.
+MIGRATIONS: dict[int, str] = {
+    2: """
+    -- Where a photo was taken. Kept as columns rather than generic enrichment
+    -- rows because proximity queries need them, and mirrors the taken_at /
+    -- taken_at_source pair that already works: the value and its provenance
+    -- travel together, so an inferred location can never be mistaken for one
+    -- the camera recorded.
+    ALTER TABLE assets ADD COLUMN gps_latitude REAL;
+    ALTER TABLE assets ADD COLUMN gps_longitude REAL;
+    ALTER TABLE assets ADD COLUMN gps_source TEXT;   -- exif | inferred
+
+    CREATE INDEX idx_assets_gps ON assets(gps_latitude) WHERE gps_latitude IS NOT NULL;
+
+    -- Additive metadata that isn't a column: captions, identified music,
+    -- free-form keywords. Every row carries where it came from and how sure we
+    -- are, because an inference and an observation are not the same fact.
+    CREATE TABLE enrichments (
+        id         INTEGER PRIMARY KEY,
+        asset_id   INTEGER NOT NULL REFERENCES assets(id),
+        kind       TEXT    NOT NULL,        -- caption | music | keyword
+        value      TEXT    NOT NULL,
+        source     TEXT    NOT NULL,        -- manifest | sidecar | inferred | ...
+        confidence REAL,                    -- 0..1, NULL when not meaningful
+        created_at TEXT    NOT NULL,
+        UNIQUE (asset_id, kind, value)
+    );
+
+    CREATE INDEX idx_enrichments_asset ON enrichments(asset_id, kind);
+    """,
+}
+
+SCHEMA_VERSION = max(MIGRATIONS) if MIGRATIONS else 1
 
 
 class IndexDatabaseError(Exception):
@@ -88,7 +128,6 @@ class Index:
         """
         if not self._has_table("schema_version"):
             self._apply_base_schema()
-            return SCHEMA_VERSION
 
         current = self.version
         if current > SCHEMA_VERSION:
@@ -97,8 +136,31 @@ class Index:
                 f"(schema {current}, this build understands {SCHEMA_VERSION}). "
                 f"Upgrade rather than risk writing a format it doesn't share."
             )
-        # Future migrations are applied here, in order, inside one transaction.
+
+        for version in sorted(MIGRATIONS):
+            if version <= current:
+                continue
+            self._apply_migration(version, MIGRATIONS[version])
+            current = version
         return current
+
+    def _apply_migration(self, version: int, sql: str) -> None:
+        """Apply one migration and stamp it, atomically.
+
+        Either the whole migration lands and the version advances, or neither
+        does. A half-migrated index would be worse than an old one.
+        """
+        try:
+            with self.transaction() as db:
+                db.executescript(sql)
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                    (version, utcnow()),
+                )
+        except IndexDatabaseError as exc:
+            raise IndexDatabaseError(
+                f"Migration to schema {version} failed on {self.path}: {exc}"
+            ) from exc
 
     def _has_table(self, name: str) -> bool:
         row = self._db.execute(
@@ -115,7 +177,7 @@ class Index:
             db.executescript(sql)
             db.execute(
                 "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
-                (SCHEMA_VERSION, utcnow()),
+                (BASE_SCHEMA_VERSION, utcnow()),
             )
 
     # ----------------------------------------------------------------- sources
@@ -176,6 +238,9 @@ class Index:
         width: int | None = None,
         height: int | None = None,
         source_id: int | None = None,
+        gps_latitude: float | None = None,
+        gps_longitude: float | None = None,
+        gps_source: str | None = None,
     ) -> int:
         with self.transaction() as db:
             cursor = db.execute(
@@ -183,8 +248,8 @@ class Index:
                 INSERT INTO assets (
                     sha256, phash, vault_path, original_filename, taken_at,
                     taken_at_source, media_type, filesize, width, height,
-                    imported_at, source_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    imported_at, source_id, gps_latitude, gps_longitude, gps_source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     sha256,
@@ -199,9 +264,79 @@ class Index:
                     height,
                     utcnow(),
                     source_id,
+                    gps_latitude,
+                    gps_longitude,
+                    gps_source,
                 ),
             )
         return int(cursor.lastrowid)
+
+    def assets_missing_location(self) -> list[Asset]:
+        """Dated assets with no coordinates — candidates for inference."""
+        rows = self._db.execute(
+            "SELECT * FROM assets WHERE gps_latitude IS NULL AND taken_at IS NOT NULL "
+            "ORDER BY taken_at"
+        ).fetchall()
+        return [Asset.from_row(r) for r in rows]
+
+    def assets_with_location(self, source: str | None = None) -> list[Asset]:
+        sql = "SELECT * FROM assets WHERE gps_latitude IS NOT NULL AND taken_at IS NOT NULL"
+        params: list[Any] = []
+        if source:
+            sql += " AND gps_source = ?"
+            params.append(source)
+        rows = self._db.execute(sql + " ORDER BY taken_at", params).fetchall()
+        return [Asset.from_row(r) for r in rows]
+
+    def set_location(
+        self, asset_id: int, latitude: float, longitude: float, source: str
+    ) -> None:
+        """Record coordinates for an asset.
+
+        Refuses to overwrite a camera-recorded location with an inferred one:
+        an observation always outranks a guess, whatever order they arrive in.
+        """
+        row = self._db.execute(
+            "SELECT gps_source FROM assets WHERE id = ?", (asset_id,)
+        ).fetchone()
+        if row is None:
+            raise IndexDatabaseError(f"No asset with id {asset_id}")
+        if row["gps_source"] == "exif" and source != "exif":
+            return
+        with self.transaction() as db:
+            db.execute(
+                "UPDATE assets SET gps_latitude = ?, gps_longitude = ?, gps_source = ? "
+                "WHERE id = ?",
+                (latitude, longitude, source, asset_id),
+            )
+
+    # ------------------------------------------------------------ enrichments
+
+    def add_enrichment(
+        self,
+        asset_id: int,
+        kind: str,
+        value: str,
+        source: str,
+        confidence: float | None = None,
+    ) -> None:
+        """Attach additive metadata. Idempotent per (asset, kind, value)."""
+        with self.transaction() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO enrichments "
+                "(asset_id, kind, value, source, confidence, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (asset_id, kind, value, source, confidence, utcnow()),
+            )
+
+    def enrichments_for(self, asset_id: int, kind: str | None = None) -> list[Enrichment]:
+        sql = "SELECT * FROM enrichments WHERE asset_id = ?"
+        params: list[Any] = [asset_id]
+        if kind:
+            sql += " AND kind = ?"
+            params.append(kind)
+        rows = self._db.execute(sql + " ORDER BY id", params).fetchall()
+        return [Enrichment.from_row(r) for r in rows]
 
     # ------------------------------------------------------------ linked files
 
@@ -350,6 +485,12 @@ class Index:
             )
             or 0,
             sources=scalar("SELECT COUNT(*) FROM sources") or 0,
+            located=scalar("SELECT COUNT(*) FROM assets WHERE gps_latitude IS NOT NULL") or 0,
+            located_inferred=scalar(
+                "SELECT COUNT(*) FROM assets WHERE gps_source = 'inferred'"
+            )
+            or 0,
+            tagged_people=scalar("SELECT COUNT(DISTINCT asset_id) FROM asset_persons") or 0,
             earliest=parse_datetime(scalar("SELECT MIN(taken_at) FROM assets")),
             latest=parse_datetime(scalar("SELECT MAX(taken_at) FROM assets")),
             reviews_by_kind=grouped(

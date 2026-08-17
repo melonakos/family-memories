@@ -18,6 +18,16 @@ DATE_FROM_SIDECAR = "sidecar"
 DATE_FROM_EXIF = "exif"
 DATE_UNKNOWN = "unknown"
 
+# gps_source values. An inferred location and a camera-recorded one are not the
+# same fact and must never be stored as though they were.
+GPS_FROM_EXIF = "exif"
+GPS_INFERRED = "inferred"
+
+# enrichments.kind values.
+ENRICHMENT_CAPTION = "caption"
+ENRICHMENT_MUSIC = "music"
+ENRICHMENT_KEYWORD = "keyword"
+
 # linked_files.reason values.
 EXACT_DUPLICATE = "exact_duplicate"
 LOW_RES_TWIN = "low_res_twin"
@@ -70,10 +80,21 @@ class Asset:
     width: int | None = None
     height: int | None = None
     source_id: int | None = None
+    gps_latitude: float | None = None
+    gps_longitude: float | None = None
+    gps_source: str | None = None
 
     @property
     def has_date(self) -> bool:
         return self.taken_at is not None
+
+    @property
+    def has_location(self) -> bool:
+        return self.gps_latitude is not None and self.gps_longitude is not None
+
+    @property
+    def location_is_inferred(self) -> bool:
+        return self.gps_source == GPS_INFERRED
 
     @property
     def pixels(self) -> int | None:
@@ -83,6 +104,7 @@ class Asset:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> Asset:
+        keys = row.keys()
         return cls(
             id=row["id"],
             sha256=row["sha256"],
@@ -97,6 +119,10 @@ class Asset:
             width=row["width"],
             height=row["height"],
             source_id=row["source_id"],
+            # Guarded so a row read before the schema-2 migration still loads.
+            gps_latitude=row["gps_latitude"] if "gps_latitude" in keys else None,
+            gps_longitude=row["gps_longitude"] if "gps_longitude" in keys else None,
+            gps_source=row["gps_source"] if "gps_source" in keys else None,
         )
 
 
@@ -157,6 +183,35 @@ class ReviewItem:
 
 
 @dataclass(frozen=True)
+class Enrichment:
+    """Additive metadata attached to an asset.
+
+    Never modifies the original file. ``source`` and ``confidence`` travel with
+    the value so a guess can always be told from an observation.
+    """
+
+    id: int
+    asset_id: int
+    kind: str
+    value: str
+    source: str
+    created_at: str
+    confidence: float | None = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> Enrichment:
+        return cls(
+            id=row["id"],
+            asset_id=row["asset_id"],
+            kind=row["kind"],
+            value=row["value"],
+            source=row["source"],
+            created_at=row["created_at"],
+            confidence=row["confidence"],
+        )
+
+
+@dataclass(frozen=True)
 class IndexStats:
     assets: int = 0
     total_bytes: int = 0
@@ -166,6 +221,9 @@ class IndexStats:
     linked_files: int = 0
     open_reviews: int = 0
     sources: int = 0
+    located: int = 0
+    located_inferred: int = 0
+    tagged_people: int = 0
     earliest: datetime | None = None
     latest: datetime | None = None
     reviews_by_kind: dict[str, int] = field(default_factory=dict)

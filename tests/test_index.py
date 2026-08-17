@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime
 
 import pytest
 
-from index.db import SCHEMA_VERSION, IndexDatabaseError, open_index
+from index.db import BASE_SCHEMA_VERSION, SCHEMA_VERSION, IndexDatabaseError, open_index
 from index.models import (
     DATE_FROM_EXIF,
     EXACT_DUPLICATE,
@@ -66,6 +67,110 @@ class TestSchema:
     def test_creates_parent_directories(self, tmp_path):
         with open_index(tmp_path / "deep" / "nested" / "index.db") as db:
             assert db.path.is_file()
+
+
+class TestMigrations:
+    """A fresh database runs the base schema then every migration, so the
+    upgrade path is exercised on every install rather than only on the one
+    machine that happens to be old."""
+
+    def test_fresh_database_lands_on_the_current_version(self, index):
+        assert index.version == SCHEMA_VERSION
+        assert SCHEMA_VERSION > BASE_SCHEMA_VERSION, "migrations should be exercised"
+
+    def test_migration_columns_exist(self, index):
+        columns = {r["name"] for r in index._db.execute("PRAGMA table_info(assets)")}
+        assert {"gps_latitude", "gps_longitude", "gps_source"} <= columns
+
+    def test_upgrades_a_version_1_database(self, tmp_path):
+        """The real upgrade: an index created before the migration existed."""
+        from index.db import SCHEMA_PATH
+
+        path = tmp_path / "old.db"
+        connection = sqlite3.connect(path)
+        connection.row_factory = sqlite3.Row
+        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        connection.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (1, '2026-01-01')"
+        )
+        connection.execute(
+            "INSERT INTO assets (sha256, vault_path, original_filename, taken_at_source,"
+            " media_type, filesize, imported_at) "
+            "VALUES ('a', 'p', 'f.jpg', 'exif', 'photo', 1, '2026-01-01')"
+        )
+        connection.commit()
+        connection.close()
+
+        with open_index(path) as upgraded:
+            assert upgraded.version == SCHEMA_VERSION
+            # The pre-existing row survives and reads back through the new model.
+            asset = upgraded.asset_by_sha256("a")
+            assert asset.vault_path == "p"
+            assert asset.gps_latitude is None
+
+    def test_migrating_twice_is_a_no_op(self, tmp_path):
+        path = tmp_path / "index.db"
+        with open_index(path) as first:
+            first.add_asset(
+                sha256="a" * 64,
+                vault_path="p",
+                original_filename="f.jpg",
+                media_type="photo",
+                filesize=1,
+                taken_at=None,
+                taken_at_source="unknown",
+            )
+        with open_index(path) as second:
+            assert second.version == SCHEMA_VERSION
+            assert len(list(second.assets())) == 1
+
+    def test_enrichments_are_idempotent_per_value(self, index):
+        asset_id = add_asset(index)
+        for _ in range(3):
+            index.add_enrichment(asset_id, "caption", "a day at the beach", "inferred", 0.8)
+        assert len(index.enrichments_for(asset_id)) == 1
+
+    def test_enrichment_records_source_and_confidence(self, index):
+        asset_id = add_asset(index)
+        index.add_enrichment(asset_id, "music", "Title — Artist", "acoustid", 0.62)
+        entry = index.enrichments_for(asset_id, kind="music")[0]
+        assert entry.source == "acoustid"
+        assert entry.confidence == 0.62
+
+
+class TestLocations:
+    def test_records_coordinates_and_provenance(self, index):
+        asset_id = add_asset(index)
+        index.set_location(asset_id, 37.8716, -122.2727, source="exif")
+        asset = index.asset_by_sha256("a" * 64)
+        assert asset.has_location
+        assert asset.gps_source == "exif"
+        assert not asset.location_is_inferred
+
+    def test_an_inference_never_overwrites_an_observation(self, index):
+        """Whatever order they arrive in, the camera outranks the guess."""
+        asset_id = add_asset(index)
+        index.set_location(asset_id, 37.8716, -122.2727, source="exif")
+        index.set_location(asset_id, 0.0, 0.0, source="inferred")
+        asset = index.asset_by_sha256("a" * 64)
+        assert asset.gps_latitude == 37.8716
+        assert asset.gps_source == "exif"
+
+    def test_an_observation_replaces_an_inference(self, index):
+        asset_id = add_asset(index)
+        index.set_location(asset_id, 1.0, 2.0, source="inferred")
+        index.set_location(asset_id, 37.8716, -122.2727, source="exif")
+        assert index.asset_by_sha256("a" * 64).gps_source == "exif"
+
+    def test_unlocated_dated_assets_are_findable(self, index):
+        add_asset(index, sha="a" * 64, path="p1")
+        located = add_asset(index, sha="b" * 64, path="p2")
+        index.set_location(located, 1.0, 2.0, source="exif")
+        assert [a.sha256 for a in index.assets_missing_location()] == ["a" * 64]
+
+    def test_unknown_asset_raises(self, index):
+        with pytest.raises(IndexDatabaseError, match="No asset"):
+            index.set_location(999, 1.0, 2.0, source="exif")
 
 
 class TestAssets:

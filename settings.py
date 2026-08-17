@@ -145,12 +145,23 @@ class IngestConfig:
 
 
 @dataclass(frozen=True)
+class EnrichConfig:
+    location_window_hours: float = 6.0
+    """How far in time a location inference may reach.
+
+    Only ever narrows what gets inferred. Inference additionally never crosses
+    midnight and never chains off another inference.
+    """
+
+
+@dataclass(frozen=True)
 class Config:
     family: FamilyConfig
     contribute: ContributeConfig
     index: IndexConfig
     vault: VaultConfig
     ingest: IngestConfig
+    enrich: EnrichConfig
     path: Path
     raw: dict[str, Any]
     """Unparsed sections (enrich, living_library, heritage, wall, ...).
@@ -327,6 +338,26 @@ def _parse_ingest(raw: dict[str, Any]) -> IngestConfig:
     return IngestConfig(inbox=_optional_path(section, "inbox"), phash_threshold=threshold)
 
 
+def _parse_enrich(raw: dict[str, Any]) -> EnrichConfig:
+    section = raw.get("enrich") or {}
+
+    # Reject rather than ignore, for the same reason as guess_missing_dates:
+    # a setting that appears to do something and doesn't is worse than absent.
+    for retired in ("music_recognition", "infer_locations"):
+        if retired in section:
+            raise ConfigError(
+                f"[enrich] {retired} is not supported. Location inference is an "
+                f"explicit command (`enrich locations`) and music identification "
+                f"is not implemented. Remove the setting so this file doesn't "
+                f"describe behaviour the tools don't have."
+            )
+
+    hours = section.get("location_window_hours", 6.0)
+    if not isinstance(hours, (int, float)) or isinstance(hours, bool) or hours <= 0:
+        raise ConfigError("[enrich] location_window_hours must be a positive number.")
+    return EnrichConfig(location_window_hours=float(hours))
+
+
 def find_config(start: Path | None = None) -> Path:
     """Locate config.toml, walking up from ``start`` to the filesystem root."""
     current = (start or Path.cwd()).resolve()
@@ -363,6 +394,7 @@ def load_config(path: Path | None = None) -> Config:
         index=_parse_index(raw, resolved.parent),
         vault=_parse_vault(raw),
         ingest=_parse_ingest(raw),
+        enrich=_parse_enrich(raw),
         path=resolved,
         raw=raw,
     )

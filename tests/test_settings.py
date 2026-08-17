@@ -173,6 +173,65 @@ class TestConfigErrors:
             load_config(write(tmp_path, text))
 
 
+class TestEnrichConfig:
+    def test_default_window(self, tmp_path):
+        assert load_config(write(tmp_path, MINIMAL)).enrich.location_window_hours == 6.0
+
+    def test_reads_the_window(self, tmp_path):
+        text = MINIMAL + "\n[enrich]\nlocation_window_hours = 2.5\n"
+        assert load_config(write(tmp_path, text)).enrich.location_window_hours == 2.5
+
+    @pytest.mark.parametrize("value", ["0", "-1", '"lots"', "true"])
+    def test_rejects_a_nonsensical_window(self, tmp_path, value):
+        text = MINIMAL + f"\n[enrich]\nlocation_window_hours = {value}\n"
+        with pytest.raises(ConfigError, match="positive number"):
+            load_config(write(tmp_path, text))
+
+    @pytest.mark.parametrize("key", ["music_recognition", "infer_locations"])
+    def test_rejects_retired_settings(self, tmp_path, key):
+        """A setting that looks like it does something and doesn't is worse than
+        one that isn't there — the same reason guess_missing_dates is refused."""
+        text = MINIMAL + f"\n[enrich]\n{key} = true\n"
+        with pytest.raises(ConfigError, match="not supported"):
+            load_config(write(tmp_path, text))
+
+
+class TestPipelineConfig:
+    def test_vault_and_ingest_defaults(self, tmp_path):
+        config = load_config(write(tmp_path, MINIMAL))
+        assert config.vault.path is None
+        assert config.vault.layout == "YYYY/MM"
+        assert config.ingest.phash_threshold == 8
+
+    def test_index_path_resolves_beside_config(self, tmp_path):
+        """So the same index is used no matter where a command runs from."""
+        config = load_config(write(tmp_path, MINIMAL))
+        assert config.index.path.parent == tmp_path
+
+    def test_rejects_an_unsupported_vault_layout(self, tmp_path):
+        text = MINIMAL + '\n[vault]\nlayout = "flat"\n'
+        with pytest.raises(ConfigError, match="not supported"):
+            load_config(write(tmp_path, text))
+
+    def test_rejects_a_mirror_on_the_same_directory(self, tmp_path):
+        """A mirror on the same media is not a second copy."""
+        same = tmp_path.as_posix()
+        text = MINIMAL + f'\n[vault]\npath = "{same}"\nmirror_path = "{same}"\n'
+        with pytest.raises(ConfigError, match="not a second copy"):
+            load_config(write(tmp_path, text))
+
+    def test_rejects_guessing_dates(self, tmp_path):
+        """Ground rule 4 is not a preference that can be configured away."""
+        text = MINIMAL + "\n[ingest]\nguess_missing_dates = true\n"
+        with pytest.raises(ConfigError, match="not supported"):
+            load_config(write(tmp_path, text))
+
+    def test_rejects_an_out_of_range_threshold(self, tmp_path):
+        text = MINIMAL + "\n[ingest]\nphash_threshold = 99\n"
+        with pytest.raises(ConfigError, match="between 0 and 64"):
+            load_config(write(tmp_path, text))
+
+
 class TestFindConfig:
     def test_finds_in_parent_directory(self, tmp_path):
         write(tmp_path, MINIMAL)

@@ -109,6 +109,7 @@ family-memories ingest run --dry-run    # what would happen; writes nothing
 family-memories ingest run              # copy into the vault, record the index
 family-memories index status            # what the archive now contains
 family-memories index review            # anything it refused to decide alone
+family-memories enrich locations        # infer places for nearby photos
 family-memories vault verify            # re-checksum the vault
 ```
 

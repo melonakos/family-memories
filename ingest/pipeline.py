@@ -30,6 +30,7 @@ from pathlib import Path
 from index.db import Index, utcnow
 from index.models import (
     EXACT_DUPLICATE,
+    GPS_FROM_EXIF,
     LOW_RES_TWIN,
     REVIEW_AMBIGUOUS_MATCH,
     REVIEW_HIGHER_RES_ARRIVED,
@@ -204,6 +205,9 @@ class _ArchiveView:
             taken_at=item.metadata.taken_at,
             width=item.metadata.width,
             height=item.metadata.height,
+            gps_latitude=item.metadata.gps_latitude,
+            gps_longitude=item.metadata.gps_longitude,
+            gps_source=GPS_FROM_EXIF if item.metadata.has_location else None,
         )
         self._by_sha[item.sha256] = asset
         if item.phash:
@@ -346,6 +350,9 @@ def _import(
             width=item.metadata.width,
             height=item.metadata.height,
             source_id=source_id,
+            gps_latitude=item.metadata.gps_latitude,
+            gps_longitude=item.metadata.gps_longitude,
+            gps_source=GPS_FROM_EXIF if item.metadata.has_location else None,
         )
     view.record(item, filed.relative_path, asset_id)
 
