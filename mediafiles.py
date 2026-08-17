@@ -36,8 +36,51 @@ HASHABLE_EXTENSIONS = frozenset(
 
 SIDECAR_EXTENSIONS = frozenset({".xmp", ".json", ".aae"})
 
+# Directories that hold deleted or machine-generated files, not content.
+#
+# ``.Trashes`` is the important one and the reason this list exists. Deleting a
+# file from an external drive in the macOS Finder does not remove it — it moves
+# it to ``.Trashes/<uid>/`` on that same drive, where it stays until the Trash
+# is emptied. A contributor who deletes photos during their private review has
+# not made them go away; they are still sitting on the drive.
+#
+# Walking into that directory would catalogue and then import the exact
+# photographs someone chose not to share. Windows' ``$RECYCLE.BIN`` is the same
+# hazard, and both drives also carry indexing caches full of thumbnails.
+SYSTEM_DIRECTORIES = frozenset(
+    {
+        ".trashes",
+        ".trash",
+        "$recycle.bin",
+        "recycler",
+        "system volume information",
+        ".spotlight-v100",
+        ".fseventsd",
+        ".temporaryitems",
+        ".documentrevisions-v100",
+        ".apdisk",
+        "__macosx",
+        "lost+found",
+    }
+)
+
 PHOTO = "photo"
 VIDEO = "video"
+
+
+def is_system_path(path: Path, root: Path) -> bool:
+    """Whether ``path`` sits inside a trash or system directory under ``root``.
+
+    Checks every component of the relative path, not just the filename: a photo
+    in ``.Trashes/501/IMG_0001.jpg`` has a perfectly ordinary name.
+    """
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        parts = path.parts
+    return any(
+        part.casefold() in SYSTEM_DIRECTORIES or part.startswith(".") for part in parts[:-1]
+    )
 
 
 def media_type(path: Path) -> str:
@@ -73,6 +116,10 @@ def iter_media(root: Path, skip_names: Iterable[str] = ()) -> Iterator[Path]:
         if not path.is_file() or path.name.startswith("."):
             continue
         if path.name in skip:
+            continue
+        # Never descend into trash or system directories. See SYSTEM_DIRECTORIES:
+        # files a contributor deleted during review are still sitting in there.
+        if is_system_path(path, root):
             continue
         if is_media(path):
             yield path

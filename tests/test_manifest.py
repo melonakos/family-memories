@@ -139,6 +139,84 @@ class TestOrphanCleanup:
         assert not (root / "IMG_9.json").exists()
 
 
+class TestTrashedItemsNeverSurvive:
+    """The most dangerous failure this kit can have.
+
+    Deleting a file from an external drive in the macOS Finder moves it to
+    ``.Trashes`` on that drive — it is not gone until the Trash is emptied. So
+    after a contributor's private review, the photos they *removed* are still
+    sitting on the drive. If they reach the manifest they get catalogued by
+    name; if they reach the handoff they get imported. Either one inverts the
+    promise the whole kit is built on.
+    """
+
+    def _with_trash(self, drive: Path) -> Path:
+        trashed = drive / ".Trashes" / "501" / "WITHHELD.HEIC"
+        trashed.parent.mkdir(parents=True)
+        trashed.write_bytes(b"a photo they chose not to share")
+        return trashed
+
+    def test_trashed_photos_are_not_catalogued(self, drive):
+        self._with_trash(drive)
+        assert not any("Trashes" in row.path for row in build_manifest(drive))
+
+    def test_trashed_photos_are_removed_from_the_drive(self, drive):
+        """Excluding them from the manifest is not enough — the files would
+        still travel."""
+        trashed = self._with_trash(drive)
+        build_manifest(drive)
+        assert not trashed.exists()
+        assert not (drive / ".Trashes").exists()
+
+    def test_windows_recycle_bin_is_purged_too(self, drive):
+        """The same hazard, and it also holds stray PNGs from bundled software
+        that would otherwise be imported as family photos."""
+        recycle = drive / "$RECYCLE.BIN"
+        recycle.mkdir()
+        (recycle / "logo_launcher.png").write_bytes(b"vendor artwork")
+        (recycle / "WITHHELD.JPG").write_bytes(b"private")
+
+        rows = build_manifest(drive)
+
+        assert not recycle.exists()
+        assert not any("RECYCLE" in row.path.upper() for row in rows)
+
+    def test_indexing_caches_are_ignored(self, drive):
+        """Spotlight and System Volume Information are full of thumbnails."""
+        for name in (".Spotlight-V100", "System Volume Information", ".fseventsd"):
+            folder = drive / name
+            folder.mkdir()
+            (folder / "cached.jpg").write_bytes(b"thumbnail")
+        assert all(
+            "Spotlight" not in row.path and "System Volume" not in row.path
+            for row in build_manifest(drive)
+        )
+
+    def test_kept_photos_are_untouched(self, drive):
+        self._with_trash(drive)
+        before = sha256_file(drive / "2010" / "06" / "IMG_0001.HEIC")
+        build_manifest(drive)
+        assert (drive / "2010" / "06" / "IMG_0001.HEIC").is_file()
+        assert sha256_file(drive / "2010" / "06" / "IMG_0001.HEIC") == before
+
+    def test_purge_reports_nothing(self):
+        """A count of trashed items is a count of withheld items."""
+        from contribute.manifest import purge_deleted_items
+
+        assert purge_deleted_items.__doc__
+        import inspect
+
+        source = inspect.getsource(purge_deleted_items)
+        assert "return" not in source.split('"""')[-1], "purge must not return a count"
+
+    def test_purge_on_a_clean_drive_is_harmless(self, drive):
+        from contribute.manifest import purge_deleted_items
+
+        before = {p.name for p in drive.rglob("*") if p.is_file()}
+        purge_deleted_items(drive)
+        assert {p.name for p in drive.rglob("*") if p.is_file()} == before
+
+
 class TestBuildManifest:
     def test_lists_every_media_file(self, drive):
         rows = build_manifest(drive)

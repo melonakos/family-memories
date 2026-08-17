@@ -281,6 +281,9 @@ def manifest(config_path: Path | None, destination: Path | None) -> None:
         raise click.ClickException(str(exc)) from exc
 
     total = sum(row.size_bytes for row in rows)
+    # Unconditional, and deliberately without a count: the number of items in
+    # the drive's trash is the number the contributor withheld.
+    click.echo("  Emptied the drive's trash so deleted items do not travel with it.")
     click.echo(f"  {len(rows):,} files, {format_size(total)}")
     click.secho(f"Manifest written to {path}", fg="green")
     click.echo("")

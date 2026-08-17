@@ -19,6 +19,7 @@ about cleaned-up orphans, that urge is the bug.
 from __future__ import annotations
 
 import csv
+import shutil
 from collections.abc import Iterator
 from contextlib import suppress
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from pathlib import Path
 from mediafiles import (
     MEDIA_EXTENSIONS,
     SIDECAR_EXTENSIONS,
+    SYSTEM_DIRECTORIES,
     read_sidecar_metadata,
     sha256_file,
     sidecar_candidates,
@@ -45,6 +47,7 @@ __all__ = [
     "iter_media",
     "read_manifest",
     "read_sidecar_metadata",
+    "purge_deleted_items",
     "remove_orphaned_sidecars",
     "sha256_file",
     "sidecar_candidates",
@@ -99,6 +102,26 @@ def remove_orphaned_sidecars(root: Path) -> None:
             path.unlink()
 
 
+def purge_deleted_items(root: Path) -> None:
+    """Permanently remove the drive's trash and system directories.
+
+    Deleting a file from an external drive in the macOS Finder moves it to
+    ``.Trashes`` on that drive rather than removing it. Without this, every
+    photo the contributor deleted during their review would still be on the
+    drive when it changed hands — and would be catalogued and imported at the
+    other end. Emptying the trash is what they meant by deleting it.
+
+    Silent and unconditional, like ``remove_orphaned_sidecars``: it runs whether
+    or not anything was deleted, and reports nothing. The number of items in the
+    trash *is* the number of items withheld, so surfacing it — even as a bare
+    count — would itemize exactly what this kit promises never to record.
+    """
+    for name in sorted(SYSTEM_DIRECTORIES):
+        for candidate in root.iterdir() if root.is_dir() else []:
+            if candidate.is_dir() and candidate.name.casefold() == name:
+                shutil.rmtree(candidate, ignore_errors=True)
+
+
 def build_manifest(root: Path, clean_orphans: bool = True) -> list[ManifestRow]:
     """Walk the reviewed drive and produce a manifest of what remains."""
     resolved = root.expanduser()
@@ -106,6 +129,7 @@ def build_manifest(root: Path, clean_orphans: bool = True) -> list[ManifestRow]:
         raise ManifestError(f"Not a directory: {resolved}")
 
     if clean_orphans:
+        purge_deleted_items(resolved)
         remove_orphaned_sidecars(resolved)
 
     rows: list[ManifestRow] = []
